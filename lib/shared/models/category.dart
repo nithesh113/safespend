@@ -3,12 +3,14 @@ class Category {
   final String name;
   final String type; // 'fixed_bill' or 'variable_expense'
   final double? expectedMonthlyAmount;
+  final bool enabled;
 
   const Category({
     this.id,
     required this.name,
     required this.type,
     this.expectedMonthlyAmount,
+    this.enabled = true,
   });
 
   Category copyWith({
@@ -16,12 +18,14 @@ class Category {
     String? name,
     String? type,
     double? expectedMonthlyAmount,
+    bool? enabled,
   }) {
     return Category(
       id: id ?? this.id,
       name: name ?? this.name,
       type: type ?? this.type,
       expectedMonthlyAmount: expectedMonthlyAmount ?? this.expectedMonthlyAmount,
+      enabled: enabled ?? this.enabled,
     );
   }
 
@@ -31,6 +35,7 @@ class Category {
       'name': name,
       'type': type,
       'expected_monthly_amount': expectedMonthlyAmount,
+      'enabled': enabled ? 1 : 0,
     };
   }
 
@@ -40,6 +45,7 @@ class Category {
       name: map['name'] as String,
       type: map['type'] as String,
       expectedMonthlyAmount: map['expected_monthly_amount'] as double?,
+      enabled: (map['enabled'] as int?) == 1,
     );
   }
 

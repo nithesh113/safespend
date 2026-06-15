@@ -12,8 +12,6 @@ class DatabaseService {
 
   Database? _database;
 
-  /// Returns the database instance. On first call, initializes the DB.
-  /// Never returns null — throws [DatabaseException] on failure.
   Future<Database> get database async {
     if (_database != null) return _database!;
     try {
@@ -33,18 +31,17 @@ class DatabaseService {
     try {
       final Directory documentsDir = await getApplicationDocumentsDirectory();
       final String path = join(documentsDir.path, 'safespend.db');
-
       return await openDatabase(
         path,
-        version: 1,
+        version: 2,
         onConfigure: _onConfigure,
         onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
       );
     } catch (e) {
       if (e is AppException) rethrow;
       throw AppDatabaseException(
-        userMessage:
-            'Could not initialize storage. Check that the app has storage permissions.',
+        userMessage: 'Could not initialize storage.',
         developerMessage: '_initDatabase failed',
         originalError: e,
       );
@@ -55,7 +52,6 @@ class DatabaseService {
     try {
       await db.execute('PRAGMA foreign_keys = ON');
     } catch (e) {
-      // Non-fatal: FKs won't be enforced but the app still works.
       debugPrint('Warning: Failed to enable foreign keys: $e');
     }
   }
@@ -63,11 +59,22 @@ class DatabaseService {
   Future<void> _onCreate(Database db, int version) async {
     try {
       await db.execute('''
+        CREATE TABLE settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      ''');
+
+      // Default income
+      await db.insert('settings', {'key': 'monthly_income', 'value': '350000'});
+
+      await db.execute('''
         CREATE TABLE categories (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           type TEXT NOT NULL CHECK(type IN ('fixed_bill', 'variable_expense')),
-          expected_monthly_amount REAL
+          expected_monthly_amount REAL,
+          enabled INTEGER NOT NULL DEFAULT 1
         )
       ''');
 
@@ -92,36 +99,85 @@ class DatabaseService {
         )
       ''');
 
-      // Seed data — wrapped in individual try-catch so one failure
-      // doesn't block the rest
       for (final seed in _seedData) {
         try {
           await db.execute(seed);
         } catch (e) {
-          debugPrint('Warning: Failed to seed a category: $e');
+          debugPrint('Warning: Failed to seed category: $e');
         }
       }
     } catch (e) {
       throw AppDatabaseException(
-        userMessage:
-            'Failed to set up the database schema. Try reinstalling the app.',
+        userMessage: 'Failed to set up database. Try reinstalling the app.',
         developerMessage: '_onCreate failed',
         originalError: e,
       );
     }
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        ''');
+        // Insert default income only if not exists
+        final existing =
+            await db.query('settings', where: 'key = ?', whereArgs: ['monthly_income']);
+        if (existing.isEmpty) {
+          await db.insert('settings', {'key': 'monthly_income', 'value': '350000'});
+        }
+        // Add enabled column
+        try {
+          await db.execute('ALTER TABLE categories ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1');
+        } catch (_) {}
+      } catch (e) {
+        debugPrint('Migration warning: $e');
+      }
+    }
+  }
+
+  // --- Settings CRUD ---
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+    final result =
+        await db.query('settings', columns: ['value'], where: 'key = ?', whereArgs: [key]);
+    if (result.isEmpty) return null;
+    return result.first['value'] as String?;
+  }
+
+  Future<void> setSetting(String key, String value) async {
+    final db = await database;
+    await db.insert('settings', {'key': key, 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // --- Category CRUD ---
+  Future<void> updateCategoryAmount(int id, double amount) async {
+    final db = await database;
+    await db.update('categories', {'expected_monthly_amount': amount},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> toggleCategoryEnabled(int id, bool enabled) async {
+    final db = await database;
+    await db.update('categories', {'enabled': enabled ? 1 : 0},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
   static const _seedData = [
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('Rent', 'fixed_bill', NULL)",
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('Water', 'fixed_bill', NULL)",
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('Electricity', 'fixed_bill', NULL)",
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('WiFi', 'fixed_bill', NULL)",
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('Groceries', 'variable_expense', NULL)",
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('Transit', 'variable_expense', NULL)",
-    "INSERT INTO categories (name, type, expected_monthly_amount) VALUES ('Dining', 'variable_expense', NULL)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('Rent', 'fixed_bill', 0, 1)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('Water', 'fixed_bill', 0, 1)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('Electricity', 'fixed_bill', 0, 1)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('WiFi', 'fixed_bill', 0, 1)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('Groceries', 'variable_expense', NULL, 1)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('Transit', 'variable_expense', NULL, 1)",
+    "INSERT INTO categories (name, type, expected_monthly_amount, enabled) VALUES ('Dining', 'variable_expense', NULL, 1)",
   ];
 
-  /// Helper to reset the DB (for development / troubleshooting).
   Future<void> resetDatabase() async {
     try {
       final Directory documentsDir = await getApplicationDocumentsDirectory();
@@ -130,7 +186,7 @@ class DatabaseService {
       _database = null;
     } catch (e) {
       throw AppDatabaseException(
-        userMessage: 'Failed to reset the database.',
+        userMessage: 'Failed to reset database.',
         developerMessage: 'resetDatabase failed',
         originalError: e,
       );
