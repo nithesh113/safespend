@@ -18,15 +18,14 @@ class DashboardProvider extends ChangeNotifier {
   List<Transaction> get paidFixedBillsThisMonth => _paidFixedBillsThisMonth;
   double get totalAllocatedSavings => _totalAllocatedSavings;
   String? get errorMessage => _errorMessage;
-
-  /// Whether data has been successfully loaded at least once.
   bool _hasLoaded = false;
   bool get hasLoaded => _hasLoaded;
 
+  /// Only counts enabled bills that have an amount set
   double get pendingFixedBillsTotal {
     double total = 0.0;
     for (final cat in _fixedBillCategories) {
-      if (cat.expectedMonthlyAmount != null) {
+      if (cat.enabled && cat.expectedMonthlyAmount != null) {
         total += cat.expectedMonthlyAmount!;
       }
     }
@@ -49,18 +48,13 @@ class DashboardProvider extends ChangeNotifier {
     return result.clamp(0.0, double.infinity);
   }
 
-  /// Loads all dashboard data. On success, clears [_errorMessage].
-  /// On failure, sets [_errorMessage] and notifies listeners — the UI
-  /// can check the error state and show a message to the user.
   Future<void> loadDashboardData() async {
     try {
       final db = await _db.database;
       final now = DateTime.now();
       final monthStart = DateTime(now.year, now.month, 1).toIso8601String();
-      final monthEnd =
-          DateTime(now.year, now.month + 1, 0).toIso8601String();
+      final monthEnd = DateTime(now.year, now.month + 1, 0).toIso8601String();
 
-      // Recent transactions (last 5)
       final txnMaps = await db.rawQuery('''
         SELECT t.*, c.name as category_name, c.type as category_type
         FROM transactions t
@@ -68,16 +62,14 @@ class DashboardProvider extends ChangeNotifier {
         ORDER BY t.date_paid DESC, t.id DESC
         LIMIT 5
       ''');
-      _recentTransactions =
-          txnMaps.map((m) => Transaction.fromMap(m)).toList();
+      _recentTransactions = txnMaps.map((m) => Transaction.fromMap(m)).toList();
 
-      // Fixed bill categories
+      // Only enabled fixed bills
       final catMaps = await db.query('categories',
-          where: 'type = ?', whereArgs: ['fixed_bill']);
-      _fixedBillCategories =
-          catMaps.map((m) => Category.fromMap(m)).toList();
+          where: 'type = ? AND enabled = 1',
+          whereArgs: ['fixed_bill']);
+      _fixedBillCategories = catMaps.map((m) => Category.fromMap(m)).toList();
 
-      // Paid fixed bills this month
       final paidMaps = await db.rawQuery('''
         SELECT t.*, c.name as category_name, c.type as category_type
         FROM transactions t
@@ -85,27 +77,21 @@ class DashboardProvider extends ChangeNotifier {
         WHERE c.type = 'fixed_bill'
           AND t.date_paid >= ? AND t.date_paid <= ?
       ''', [monthStart, monthEnd]);
-      _paidFixedBillsThisMonth =
-          paidMaps.map((m) => Transaction.fromMap(m)).toList();
+      _paidFixedBillsThisMonth = paidMaps.map((m) => Transaction.fromMap(m)).toList();
 
-      // Total allocated savings
-      final savingsResult = await db
-          .rawQuery('SELECT SUM(current_amount) as total FROM savings_goals');
-      _totalAllocatedSavings =
-          (savingsResult.first['total'] as num?)?.toDouble() ?? 0.0;
+      final savingsResult =
+          await db.rawQuery('SELECT SUM(current_amount) as total FROM savings_goals');
+      _totalAllocatedSavings = (savingsResult.first['total'] as num?)?.toDouble() ?? 0.0;
 
       _errorMessage = null;
       _hasLoaded = true;
       notifyListeners();
     } on AppException {
-      // Database-level errors already have user-friendly messages
       rethrow;
     } catch (e, stackTrace) {
       debugPrint('Error loading dashboard: $e\n$stackTrace');
-      _errorMessage =
-          'Could not load dashboard data. Pull down to retry.';
+      _errorMessage = 'Could not load dashboard data. Pull down to retry.';
       notifyListeners();
-      // Don't rethrow — the error is stored in state for the UI to display
     }
   }
 }

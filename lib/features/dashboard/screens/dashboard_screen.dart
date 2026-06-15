@@ -8,13 +8,12 @@ import 'package:safespend/shared/widgets/transaction_card.dart';
 import 'package:safespend/shared/widgets/status_pill.dart';
 import 'package:safespend/core/utils/currency_formatter.dart';
 import 'package:safespend/core/utils/app_exception.dart';
-import 'package:safespend/core/theme/app_theme.dart';
 import 'package:safespend/core/utils/app_version.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
-
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
@@ -31,98 +30,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      await context.read<DashboardProvider>().loadDashboardData();
-    } on AppException catch (e) {
-      if (mounted) _showError(e.userMessage);
-    } catch (e) {
-      if (mounted) {
-        _showError('Something went wrong loading the dashboard.');
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+      await Future.wait([
+        context.read<DashboardProvider>().loadDashboardData(),
+        context.read<AppSettingsProvider>().loadAll(),
+      ]);
+    } on AppException catch (e) { if (mounted) _showError(e.userMessage); }
+    catch (_) { if (mounted) _showError('Something went wrong.'); }
+    finally { if (mounted) setState(() => _isLoading = false); }
   }
 
-  void _showError(String message) {
+  void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'Retry',
-          textColor: Colors.white,
-          onPressed: _loadData,
-        ),
-      ),
+      SnackBar(content: Text(msg),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(label: 'Retry', textColor: Colors.white, onPressed: _loadData)),
     );
   }
 
-  Future<void> _markBillPaid(
-      int categoryId, String categoryName, double? expectedAmount) async {
+  Future<void> _markBillPaid(int categoryId, String categoryName, double? expectedAmount) async {
     try {
       await context.read<ExpenseProvider>().addTransaction(
-            categoryId: categoryId,
-            amount: expectedAmount ?? 0.0,
-            date: DateTime.now(),
-          );
+            categoryId: categoryId, amount: expectedAmount ?? 0, date: DateTime.now());
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$categoryName marked as paid!'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+          SnackBar(content: Text('$categoryName marked as paid!'), behavior: SnackBarBehavior.floating));
       }
-    } on AppException catch (e) {
-      if (mounted) _showError(e.userMessage);
-    } catch (e) {
-      if (mounted) _showError('Failed to mark $categoryName as paid.');
-    }
+    } on AppException catch (e) { if (mounted) _showError(e.userMessage); }
+    catch (_) { if (mounted) _showError('Failed to mark $categoryName as paid.'); }
   }
 
-  Future<void> _showPayBillDialog(
-      String categoryName, int categoryId, double? expectedAmount) async {
-    final amountToPay = expectedAmount ?? 0.0;
-    final confirmed = await showDialog<bool>(
+  Future<void> _showPayBillDialog(String categoryName, int categoryId, double? expectedAmount) async {
+    final amount = expectedAmount ?? 0;
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Pay $categoryName'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Mark this bill as paid for this month?'),
-            const SizedBox(height: 8),
-            Text(
-              'Amount: ${formatCurrency(amountToPay)}',
-              style: Theme.of(ctx)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text('Date: ${DateFormat('MMM dd, yyyy').format(DateTime.now())}'),
-          ],
-        ),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Mark this bill as paid for this month?'),
+          const SizedBox(height: 8),
+          Text('Amount: ${formatCurrency(amount)}',
+              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text('Date: ${DateFormat('MMM dd, yyyy').format(DateTime.now())}'),
+        ]),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm Payment'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm')),
         ],
       ),
     );
-
-    if (confirmed == true) {
-      await _markBillPaid(categoryId, categoryName, amountToPay);
-    }
+    if (ok == true) await _markBillPaid(categoryId, categoryName, amount);
   }
 
   @override
@@ -131,294 +91,211 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Consumer2<DashboardProvider, AppSettingsProvider>(
       builder: (context, dashboard, settings, _) {
-        // ----- Loading State -----
         if (_isLoading && !dashboard.hasLoaded) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // ----- Error State (no data loaded at all) -----
         if (!dashboard.hasLoaded && dashboard.errorMessage != null) {
           return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline,
-                      size: 64, color: theme.colorScheme.error),
-                  const SizedBox(height: 16),
-                  Text(
-                    dashboard.errorMessage!,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _loadData,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
+            child: Padding(padding: const EdgeInsets.all(32), child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
+                const SizedBox(height: 16),
+                Text(dashboard.errorMessage!, textAlign: TextAlign.center, style: theme.textTheme.bodyLarge),
+                const SizedBox(height: 16),
+                FilledButton.icon(onPressed: _loadData, icon: const Icon(Icons.refresh), label: const Text('Retry')),
+              ],
+            )),
           );
         }
 
         final safeToSpend = dashboard.safeToSpend(settings.monthlyIncome);
+        final bills = dashboard.fixedBillCategories;
 
         return RefreshIndicator(
           onRefresh: _loadData,
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             children: [
-              // ---- Inline error banner (if data loaded but refresh failed) ----
+              // ---- Settings gear ----
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  icon: Icon(Icons.settings_outlined, color: theme.colorScheme.onSurfaceVariant),
+                  onPressed: () => context.go('/settings'),
+                ),
+              ),
+
+              // ---- Error banner ----
               if (dashboard.errorMessage != null)
                 Card(
                   color: theme.colorScheme.errorContainer,
-                  child: ListTile(
-                    leading:
-                        Icon(Icons.warning_amber, color: theme.colorScheme.error),
-                    title: Text(dashboard.errorMessage!),
-                    trailing: TextButton(
-                      onPressed: _loadData,
-                      child: const Text('Retry'),
-                    ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(children: [
+                      Icon(Icons.warning_amber, color: theme.colorScheme.error, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(dashboard.errorMessage!, style: theme.textTheme.bodySmall)),
+                      TextButton(onPressed: _loadData, child: const Text('Retry')),
+                    ]),
                   ),
                 ),
+              if (dashboard.errorMessage != null) const SizedBox(height: 12),
 
-              // ---- Safe-to-Spend Header ----
-              Card(
-                color: AppTheme.green,
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Safe to Spend',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.white.withAlpha(220),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      CurrencyText(
-                        safeToSpend,
-                        bold: true,
-                        style: theme.textTheme.headlineLarge?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          _buildBreakdownChip(
-                            'Income',
-                            settings.monthlyIncome,
-                            Colors.white.withAlpha(40),
-                            Colors.white,
-                          ),
-                          _buildBreakdownChip(
-                            'Bills',
-                            -dashboard.paidFixedBillsTotal -
-                                dashboard.pendingFixedBillsTotal,
-                            Colors.white.withAlpha(40),
-                            Colors.white,
-                          ),
-                          _buildBreakdownChip(
-                            'Saved',
-                            -dashboard.totalAllocatedSavings,
-                            Colors.white.withAlpha(40),
-                            Colors.white,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
+              // ---- Safe-to-Spend Card ----
+              _buildSafeToSpendCard(safeToSpend, dashboard, theme),
               const SizedBox(height: 24),
 
-              // ---- Fixed Bills Section ----
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Fixed Bills',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.bold)),
-                  Text(
-                    '${formatCurrency(dashboard.paidFixedBillsTotal)} paid',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppTheme.green,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 120,
-                child: dashboard.fixedBillCategories.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No fixed bills configured.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: dashboard.fixedBillCategories.length,
-                        padding: const EdgeInsets.symmetric(horizontal: 2),
-                        itemBuilder: (context, index) {
-                          final cat = dashboard.fixedBillCategories[index];
-                          final isPaid = dashboard.paidFixedBillsThisMonth.any(
-                            (t) => t.categoryId == cat.id,
-                          );
-                          final expectedAmount =
-                              cat.expectedMonthlyAmount ?? 0.0;
-
-                          return GestureDetector(
-                            onTap: isPaid
-                                ? null
-                                : () => _showPayBillDialog(
-                                    cat.name, cat.id!, expectedAmount),
-                            child: Container(
-                              width: 140,
-                              margin: const EdgeInsets.only(right: 12),
-                              child: Card(
-                                color: isPaid
-                                    ? AppTheme.green.withAlpha(20)
-                                    : null,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        cat.name,
-                                        style: theme.textTheme.bodyMedium
-                                            ?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      if (expectedAmount > 0)
-                                        Text(
-                                          formatCurrency(expectedAmount),
-                                          style: theme.textTheme.titleSmall
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: isPaid
-                                                ? AppTheme.green
-                                                : theme.colorScheme.onSurface,
-                                          ),
-                                        ),
-                                      StatusPill(isPaid: isPaid),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ---- Recent Transactions ----
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Recent Transactions',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 4),
-
-              if (dashboard.recentTransactions.isEmpty)
+              // ---- Fixed Bills ----
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('Fixed Bills', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text('${formatCurrency(dashboard.paidFixedBillsTotal)} paid',
+                    style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF2E7D32), fontWeight: FontWeight.w600)),
+              ]),
+              const SizedBox(height: 12),
+              if (bills.isEmpty)
                 Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Center(
-                      child: Column(
-                        children: [
-                          Icon(Icons.receipt_long_outlined,
-                              size: 48,
-                              color: theme.colorScheme.onSurfaceVariant),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No transactions yet',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: Text('No fixed bills enabled.\nGo to Settings to configure.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                     ),
                   ),
                 )
               else
-                ...dashboard.recentTransactions.map((txn) {
-                  return TransactionCard(
-                    icon: txn.categoryType == 'fixed_bill'
-                        ? Icons.receipt_long
-                        : Icons.shopping_cart_outlined,
-                    title: txn.categoryName ?? 'Unknown',
-                    date: DateTime.tryParse(txn.datePaid) ?? DateTime.now(),
-                    amount: txn.amount,
-                    note: txn.note,
-                  );
-                }),
-
-                // App version
-                const SizedBox(height: 24),
-                Center(
-                  child: Text(
-                    AppVersion.full,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                SizedBox(
+                  height: 130,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: bills.length,
+                    padding: EdgeInsets.zero,
+                    itemBuilder: (context, index) {
+                      final cat = bills[index];
+                      final isPaid = dashboard.paidFixedBillsThisMonth.any((t) => t.categoryId == cat.id);
+                      final amount = cat.expectedMonthlyAmount ?? 0;
+                      return GestureDetector(
+                        onTap: isPaid ? null : () => _showPayBillDialog(cat.name, cat.id!, amount),
+                        child: Container(
+                          width: 150,
+                          margin: const EdgeInsets.only(right: 14),
+                          child: Card(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            color: isPaid ? const Color(0xFF2E7D32).withAlpha(15) : null,
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                                    Text(cat.name, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                                    StatusPill(isPaid: isPaid),
+                                  ]),
+                                  if (amount > 0)
+                                    Text(formatCurrency(amount),
+                                        style: theme.textTheme.titleSmall?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: isPaid ? const Color(0xFF2E7D32) : theme.colorScheme.onSurface)),
+                                  if (amount == 0)
+                                    Text('Tap to set amount',
+                                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
+
+              const SizedBox(height: 24),
+
+              // ---- Recent Transactions ----
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('Recent', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              ]),
+              const SizedBox(height: 8),
+              if (dashboard.recentTransactions.isEmpty)
+                Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                      child: Column(children: [
+                        Icon(Icons.receipt_long_outlined, size: 48, color: theme.colorScheme.onSurfaceVariant),
+                        const SizedBox(height: 8),
+                        Text('No transactions yet', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      ]),
+                    ),
+                  ),
+                )
+              else
+                ...dashboard.recentTransactions.map((txn) => TransactionCard(
+                      icon: txn.categoryType == 'fixed_bill' ? Icons.receipt_long : Icons.shopping_cart_outlined,
+                      title: txn.categoryName ?? 'Unknown',
+                      date: DateTime.tryParse(txn.datePaid) ?? DateTime.now(),
+                      amount: txn.amount,
+                      note: txn.note,
+                    )),
+
+              const SizedBox(height: 24),
+              Center(
+                child: Text(AppVersion.full,
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ),
+              const SizedBox(height: 16),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildBreakdownChip(
-      String label, double amount, Color bgColor, Color textColor) {
+  Widget _buildSafeToSpendCard(double safeToSpend, DashboardProvider dashboard, ThemeData theme) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1B5E20), Color(0xFF2E7D32)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: const Color(0xFF2E7D32).withAlpha(60), blurRadius: 16, offset: const Offset(0, 6))],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$label: ',
-            style: TextStyle(color: textColor.withAlpha(200), fontSize: 12),
-          ),
-          Text(
-            formatCurrency(amount),
-            style: TextStyle(
-                color: textColor, fontSize: 12, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text('Safe to Spend', style: theme.textTheme.labelLarge?.copyWith(color: Colors.white70, letterSpacing: 0.5)),
+        ]),
+        const SizedBox(height: 8),
+        CurrencyText(safeToSpend, bold: true,
+            style: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Colors.white, height: 1.1)),
+        const SizedBox(height: 16),
+        Wrap(spacing: 10, runSpacing: 8, children: [
+          _chip('Income', dashboard.paidFixedBillsTotal + dashboard.pendingFixedBillsTotal + dashboard.totalAllocatedSavings + safeToSpend,
+              Colors.white.withAlpha(35), Colors.white, false),
+          _chip('Bills', -dashboard.paidFixedBillsTotal - dashboard.pendingFixedBillsTotal,
+              Colors.white.withAlpha(35), Colors.white, false),
+          _chip('Saved', -dashboard.totalAllocatedSavings,
+              Colors.white.withAlpha(35), Colors.white, false),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _chip(String label, double amount, Color bg, Color fg, bool bold) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text('$label: ', style: TextStyle(color: fg.withAlpha(180), fontSize: 12)),
+        Text(formatCurrency(amount), style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w700)),
+      ]),
     );
   }
 }
