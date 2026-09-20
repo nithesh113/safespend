@@ -3,6 +3,7 @@ class SavingsGoal {
   final String title;
   final double targetAmount;
   final double currentAmount;
+  final double monthlyContribution;
   final String? targetDate; // ISO-8601 date string (nullable)
 
   const SavingsGoal({
@@ -10,6 +11,7 @@ class SavingsGoal {
     required this.title,
     required this.targetAmount,
     this.currentAmount = 0.0,
+    this.monthlyContribution = 0.0,
     this.targetDate,
   });
 
@@ -25,6 +27,7 @@ class SavingsGoal {
     String? title,
     double? targetAmount,
     double? currentAmount,
+    double? monthlyContribution,
     String? targetDate,
   }) {
     return SavingsGoal(
@@ -32,6 +35,7 @@ class SavingsGoal {
       title: title ?? this.title,
       targetAmount: targetAmount ?? this.targetAmount,
       currentAmount: currentAmount ?? this.currentAmount,
+      monthlyContribution: monthlyContribution ?? this.monthlyContribution,
       targetDate: targetDate ?? this.targetDate,
     );
   }
@@ -42,6 +46,7 @@ class SavingsGoal {
       'title': title,
       'target_amount': targetAmount,
       'current_amount': currentAmount,
+      'monthly_contribution': monthlyContribution,
       'target_date': targetDate,
     };
   }
@@ -52,6 +57,8 @@ class SavingsGoal {
       title: map['title'] as String,
       targetAmount: (map['target_amount'] as num).toDouble(),
       currentAmount: (map['current_amount'] as num?)?.toDouble() ?? 0.0,
+      monthlyContribution:
+          (map['monthly_contribution'] as num?)?.toDouble() ?? 0.0,
       targetDate: map['target_date'] as String?,
     );
   }

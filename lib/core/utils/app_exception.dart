@@ -32,8 +32,8 @@ class AppDatabaseException extends AppException {
     String? developerMessage,
     Object? originalError,
   }) : super(
-          userMessage,
-          developerMessage: developerMessage,
-          originalError: originalError,
-        );
+         userMessage,
+         developerMessage: developerMessage,
+         originalError: originalError,
+       );
 }

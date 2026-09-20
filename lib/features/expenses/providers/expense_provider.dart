@@ -18,6 +18,28 @@ class ExpenseProvider extends ChangeNotifier {
   List<Category> get fixedBillCategories =>
       _categories.where((c) => c.type == 'fixed_bill').toList();
 
+  Future<List<Transaction>> loadTransactions() async {
+    try {
+      final db = await _db.database;
+      final maps = await db.rawQuery('''
+        SELECT t.*, c.name as category_name, c.type as category_type
+        FROM transactions t
+        JOIN categories c ON t.category_id = c.id
+        ORDER BY t.date_paid DESC, t.id DESC
+      ''');
+      return maps.map((m) => Transaction.fromMap(m)).toList();
+    } on AppException {
+      rethrow;
+    } catch (e, stackTrace) {
+      debugPrint('Error loading transactions: $e\n$stackTrace');
+      throw AppException(
+        'Could not load transaction history.',
+        developerMessage: 'loadTransactions',
+        originalError: e,
+      );
+    }
+  }
+
   Future<void> loadCategories() async {
     try {
       final db = await _db.database;
@@ -72,15 +94,20 @@ class ExpenseProvider extends ChangeNotifier {
     try {
       final db = await _db.database;
       final now = DateTime.now();
-      final monthStart =
-          DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, 1));
-      final monthEnd =
-          DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month + 1, 0));
+      final monthStart = DateFormat(
+        'yyyy-MM-dd',
+      ).format(DateTime(now.year, now.month, 1));
+      final monthEnd = DateFormat(
+        'yyyy-MM-dd',
+      ).format(DateTime(now.year, now.month + 1, 0));
 
-      final result = await db.rawQuery('''
+      final result = await db.rawQuery(
+        '''
         SELECT COUNT(*) as cnt FROM transactions
         WHERE category_id = ? AND date_paid >= ? AND date_paid <= ?
-      ''', [categoryId, monthStart, monthEnd]);
+      ''',
+        [categoryId, monthStart, monthEnd],
+      );
 
       final count = result.first['cnt'] as int;
       return count > 0;

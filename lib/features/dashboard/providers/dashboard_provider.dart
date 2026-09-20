@@ -10,13 +10,16 @@ class DashboardProvider extends ChangeNotifier {
   List<Transaction> _recentTransactions = [];
   List<Category> _fixedBillCategories = [];
   List<Transaction> _paidFixedBillsThisMonth = [];
-  double _totalAllocatedSavings = 0.0;
+  double _monthlyVariableExpenses = 0.0;
+  double _monthlySavingsContributions = 0.0;
   String? _errorMessage;
 
   List<Transaction> get recentTransactions => _recentTransactions;
   List<Category> get fixedBillCategories => _fixedBillCategories;
   List<Transaction> get paidFixedBillsThisMonth => _paidFixedBillsThisMonth;
-  double get totalAllocatedSavings => _totalAllocatedSavings;
+  double get totalAllocatedSavings => _monthlySavingsContributions;
+  double get monthlyVariableExpenses => _monthlyVariableExpenses;
+  double get monthlySavingsContributions => _monthlySavingsContributions;
   String? get errorMessage => _errorMessage;
   bool _hasLoaded = false;
   bool get hasLoaded => _hasLoaded;
@@ -25,7 +28,10 @@ class DashboardProvider extends ChangeNotifier {
   double get pendingFixedBillsTotal {
     double total = 0.0;
     for (final cat in _fixedBillCategories) {
-      if (cat.enabled && cat.expectedMonthlyAmount != null) {
+      final isPaid = _paidFixedBillsThisMonth.any(
+        (t) => t.categoryId == cat.id,
+      );
+      if (cat.enabled && !isPaid && (cat.expectedMonthlyAmount ?? 0) > 0) {
         total += cat.expectedMonthlyAmount!;
       }
     }
@@ -41,10 +47,12 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   double safeToSpend(double monthlyIncome) {
-    final result = monthlyIncome -
+    final result =
+        monthlyIncome -
+        _monthlyVariableExpenses -
         paidFixedBillsTotal -
         pendingFixedBillsTotal -
-        _totalAllocatedSavings;
+        _monthlySavingsContributions;
     return result.clamp(0.0, double.infinity);
   }
 
@@ -52,8 +60,8 @@ class DashboardProvider extends ChangeNotifier {
     try {
       final db = await _db.database;
       final now = DateTime.now();
-      final monthStart = DateTime(now.year, now.month, 1).toIso8601String();
-      final monthEnd = DateTime(now.year, now.month + 1, 0).toIso8601String();
+      final monthStart = _monthDate(DateTime(now.year, now.month, 1));
+      final monthEnd = _monthDate(DateTime(now.year, now.month + 1, 0));
 
       final txnMaps = await db.rawQuery('''
         SELECT t.*, c.name as category_name, c.type as category_type
@@ -65,23 +73,50 @@ class DashboardProvider extends ChangeNotifier {
       _recentTransactions = txnMaps.map((m) => Transaction.fromMap(m)).toList();
 
       // Only enabled fixed bills
-      final catMaps = await db.query('categories',
-          where: 'type = ? AND enabled = 1',
-          whereArgs: ['fixed_bill']);
+      final catMaps = await db.query(
+        'categories',
+        where: 'type = ? AND enabled = 1 AND archived = 0',
+        whereArgs: ['fixed_bill'],
+      );
       _fixedBillCategories = catMaps.map((m) => Category.fromMap(m)).toList();
 
-      final paidMaps = await db.rawQuery('''
+      final paidMaps = await db.rawQuery(
+        '''
         SELECT t.*, c.name as category_name, c.type as category_type
         FROM transactions t
         JOIN categories c ON t.category_id = c.id
         WHERE c.type = 'fixed_bill'
           AND t.date_paid >= ? AND t.date_paid <= ?
-      ''', [monthStart, monthEnd]);
-      _paidFixedBillsThisMonth = paidMaps.map((m) => Transaction.fromMap(m)).toList();
+      ''',
+        [monthStart, monthEnd],
+      );
+      _paidFixedBillsThisMonth = paidMaps
+          .map((m) => Transaction.fromMap(m))
+          .toList();
 
-      final savingsResult =
-          await db.rawQuery('SELECT SUM(current_amount) as total FROM savings_goals');
-      _totalAllocatedSavings = (savingsResult.first['total'] as num?)?.toDouble() ?? 0.0;
+      final expenseResult = await db.rawQuery(
+        '''
+        SELECT SUM(t.amount) as total
+        FROM transactions t
+        JOIN categories c ON t.category_id = c.id
+        WHERE c.type = 'variable_expense'
+          AND t.date_paid >= ? AND t.date_paid <= ?
+      ''',
+        [monthStart, monthEnd],
+      );
+      _monthlyVariableExpenses =
+          (expenseResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+      final savingsResult = await db.rawQuery(
+        '''
+        SELECT SUM(amount) as total
+        FROM savings_contributions
+        WHERE contributed_at >= ? AND contributed_at <= ?
+      ''',
+        [monthStart, monthEnd],
+      );
+      _monthlySavingsContributions =
+          (savingsResult.first['total'] as num?)?.toDouble() ?? 0.0;
 
       _errorMessage = null;
       _hasLoaded = true;
@@ -94,4 +129,7 @@ class DashboardProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  String _monthDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }

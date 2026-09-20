@@ -32,10 +32,7 @@ class TransactionCard extends StatelessWidget {
           backgroundColor: theme.colorScheme.secondaryContainer,
           child: Icon(icon, color: theme.colorScheme.onSecondaryContainer),
         ),
-        title: Text(
-          title,
-          style: theme.textTheme.titleMedium,
-        ),
+        title: Text(title, style: theme.textTheme.titleMedium),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

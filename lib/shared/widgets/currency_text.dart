@@ -19,8 +19,9 @@ class CurrencyText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final defaultStyle =
-        bold ? Theme.of(context).textTheme.headlineMedium : null;
+    final defaultStyle = bold
+        ? Theme.of(context).textTheme.headlineMedium
+        : null;
     return Text(
       formatCurrency(amount),
       style: (defaultStyle ?? const TextStyle()).merge(style),

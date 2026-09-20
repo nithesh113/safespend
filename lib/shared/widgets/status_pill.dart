@@ -6,10 +6,7 @@ import 'package:safespend/core/theme/app_theme.dart';
 class StatusPill extends StatelessWidget {
   final bool isPaid;
 
-  const StatusPill({
-    super.key,
-    required this.isPaid,
-  });
+  const StatusPill({super.key, required this.isPaid});
 
   @override
   Widget build(BuildContext context) {

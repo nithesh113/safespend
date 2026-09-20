@@ -8,6 +8,7 @@ class ProgressJarCard extends StatelessWidget {
   final String title;
   final double targetAmount;
   final double currentAmount;
+  final double monthlyContribution;
   final String? targetDate;
   final VoidCallback? onTap;
 
@@ -16,6 +17,7 @@ class ProgressJarCard extends StatelessWidget {
     required this.title,
     required this.targetAmount,
     required this.currentAmount,
+    this.monthlyContribution = 0,
     this.targetDate,
     this.onTap,
   });
@@ -84,8 +86,10 @@ class ProgressJarCard extends StatelessWidget {
                     ],
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(12),
@@ -99,6 +103,17 @@ class ProgressJarCard extends StatelessWidget {
                   ),
                 ],
               ),
+
+              if (monthlyContribution > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Monthly plan: ${formatCurrency(monthlyContribution)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
 
               // Target date (if set)
               if (targetDate != null) ...[

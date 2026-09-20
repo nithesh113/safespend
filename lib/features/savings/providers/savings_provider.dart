@@ -31,6 +31,7 @@ class SavingsProvider extends ChangeNotifier {
   Future<SavingsGoal> createGoal({
     required String title,
     required double targetAmount,
+    double monthlyContribution = 0,
     String? targetDate,
   }) async {
     try {
@@ -38,6 +39,7 @@ class SavingsProvider extends ChangeNotifier {
       final goal = SavingsGoal(
         title: title,
         targetAmount: targetAmount,
+        monthlyContribution: monthlyContribution,
         targetDate: targetDate,
       );
       final id = await db.insert('savings_goals', goal.toMap());
@@ -62,10 +64,12 @@ class SavingsProvider extends ChangeNotifier {
     try {
       final db = await _db.database;
 
-      final results = await db.query('savings_goals',
-          columns: ['current_amount'],
-          where: 'id = ?',
-          whereArgs: [goalId]);
+      final results = await db.query(
+        'savings_goals',
+        columns: ['current_amount'],
+        where: 'id = ?',
+        whereArgs: [goalId],
+      );
 
       if (results.isEmpty) {
         throw AppException('Savings goal no longer exists.');
@@ -82,6 +86,12 @@ class SavingsProvider extends ChangeNotifier {
         whereArgs: [goalId],
       );
 
+      await db.insert('savings_contributions', {
+        'goal_id': goalId,
+        'amount': amount,
+        'contributed_at': _dateString(DateTime.now()),
+      });
+
       // Refresh the list
       await loadGoals();
     } on AppException {
@@ -91,6 +101,28 @@ class SavingsProvider extends ChangeNotifier {
       throw AppException(
         'Failed to add funds. Please try again.',
         developerMessage: 'addFunds failed',
+        originalError: e,
+      );
+    }
+  }
+
+  Future<void> updateGoalPlan(int goalId, double monthlyContribution) async {
+    try {
+      final db = await _db.database;
+      await db.update(
+        'savings_goals',
+        {'monthly_contribution': monthlyContribution},
+        where: 'id = ?',
+        whereArgs: [goalId],
+      );
+      await loadGoals();
+    } on AppException {
+      rethrow;
+    } catch (e, stackTrace) {
+      debugPrint('Error updating goal plan: $e\n$stackTrace');
+      throw AppException(
+        'Failed to update monthly savings plan.',
+        developerMessage: 'updateGoalPlan',
         originalError: e,
       );
     }
@@ -112,4 +144,7 @@ class SavingsProvider extends ChangeNotifier {
       );
     }
   }
+
+  String _dateString(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }
